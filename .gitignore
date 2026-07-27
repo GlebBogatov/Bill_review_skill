@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+
+# Артефакты обработки чеков
+*.pdf
+receipt*.html
+magnit_*.html
+billrev/
+bills_review/
+
+# Журнал запусков (аудит, не для публикации)
+sessions_bill_review.md
+
+# Локальная приватная конфигурация (если выносишь реальные значения из репозитория)
+configuration.local.md
+local.config.*
+
+# ОС
+.DS_Store
+Thumbs.db
