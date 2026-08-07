@@ -4,7 +4,9 @@
 
 .DESCRIPTION
   Идемпотентно и с проверкой размера:
-    * если целевой PDF уже существует — пропуск (SKIP);
+    * если чек с этим ID (ФПД/номер, хвост имени `_<ID>.pdf`) уже сохранён под
+      ЛЮБОЙ датой — пропуск (SKIP). Сверка по ID, а не по точному имени, устойчива
+      к сдвигу даты/таймзоны между запусками;
     * рендер через `Start-Process -Wait` (форма bash `& ... 2>$null` файл НЕ
       создаёт надёжно — не используется);
     * после рендера файл < MinKB считается битым: удаляется, статус FAIL
@@ -21,6 +23,9 @@
 .PARAMETER OutPath
   Абсолютный путь целевого `Чек_YYYY-MM-DD_<ID>.pdf`.
 
+.PARAMETER Force
+  Игнорировать идемпотентность (перерендерить, даже если чек с этим ID уже есть).
+
 .EXAMPLE
   .\render_receipt.ps1 -Source "https://check.yandex.ru/?n=..&fn=..&fpd=.." `
     -OutPath "D:\receipts\2026\Store\Чек_2026-01-01_1234567890.pdf"
@@ -34,15 +39,24 @@ param(
   [Parameter(Mandatory = $true)] [string] $Source,
   [Parameter(Mandatory = $true)] [string] $OutPath,
   [string] $Chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe",
-  [double] $MinKB = 4
+  [double] $MinKB = 4,
+  [switch] $Force
 )
 
-if (Test-Path $OutPath) {
+$dir = Split-Path -Parent $OutPath
+$leaf = Split-Path -Leaf $OutPath
+# ID = хвост имени после последнего "_" (ФПД цифрами или иностранный 2067-2022-6800).
+$id = if ($leaf -match '_([^_]+)\.pdf$') { $Matches[1] } else { $null }
+if (-not $Force -and $id -and (Test-Path $dir) -and `
+    (Get-ChildItem -Path $dir -Filter "*_$id.pdf" -ErrorAction SilentlyContinue)) {
+  Write-Output "SKIP exists (id $id): $OutPath"
+  return
+}
+if (-not $Force -and (Test-Path $OutPath)) {
   Write-Output "SKIP exists: $OutPath"
   return
 }
 
-$dir = Split-Path -Parent $OutPath
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
 Start-Process -FilePath $Chrome -Wait -NoNewWindow -ArgumentList `

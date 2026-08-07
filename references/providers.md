@@ -42,14 +42,35 @@
   но папка всегда `Билайн_ОФД`.
 
 ### Яндекс.Маркет (`noreply@check.yandex.ru`)
-- Ссылка в snippet/теле: `https://check.yandex.ru/?n=<ФД>&fn=<ФН>&fpd=<ФПД>`.
-  ФПД видно уже в snippet — тело для идемпотентности часто не нужно.
+- **`get_thread` НЕ нужен вовсе:** `n`/`fn`/`fpd` — все три уже в `snippet`
+  результата поиска (`Ссылка на ваш чек: https://check.yandex.ru/?n=<ФД>&fn=<ФН>&fpd=<ФПД>`).
+  Строй URL и печатай напрямую; ФПД для идемпотентности бери из того же snippet.
 - ⚠ Subject «Чек + (1) подарок 💌 🎁» ИДЕНТИЧЕН `no-reply@ofd.yandex.ru`
   (Яндекс.Доставка). Различай по адресу отправителя, не по subject.
 
 ### 1-ОФД (`echeck@1-ofd.ru`)
 - Папка по ИНН из тела (маппинг в `configuration.md`), иначе §4 по организации.
-- ФПД — `ФП <digits>` в `htmlBody`. Рендер `htmlBody` как HTML-файла.
+- ФПД — `(?:ФПД|ФП)[:\s№]+(\d+)` в `htmlBody`.
+- Тело малое (~20 КБ) → приходит **инлайн**, а не в файл tool-results, поэтому
+  `extract_html_body.py` (читает СОХРАНЁННЫЙ JSON) здесь неприменим. Рендер:
+  (а) записать инлайн `htmlBody` в `<TEMP>\receipt.html`, либо (б)
+  **реконструировать** чистый чек из полей (надёжнее, без промо-баннеров; cid-QR
+  всё равно не рендерится). Ссылку «Открыть чек в браузере» из тела не используй —
+  её параметры бьются мусорными символами. Шаблон реконструкции:
+
+```html
+<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+body{font-family:'Courier New',monospace;font-size:12pt;max-width:480px;margin:14px auto;padding:14px}
+.c{text-align:center}.r{text-align:right}table{width:100%;border-collapse:collapse;font-size:11pt}
+hr{border:none;border-top:1px dashed #666;margin:7px 0}.big{font-size:15pt;font-weight:bold}
+</style></head><body>
+<div class="c big">КАССОВЫЙ ЧЕК · ПРИХОД</div>
+<div class="c">{Организация}<br>ИНН {ИНН} · {адрес}<br>{ДД.ММ.ГГГГ ЧЧ:ММ} · Смена №{..} · Чек №{..}</div><hr>
+<table><tr><td>{наименование}</td><td class="r">{цена}×{кол}={сумма}</td></tr></table><hr>
+<div><span class="big">ИТОГО: {сумма}</span> · Безналичными {сумма} · СНО {ОСН/УСН доход}</div><hr>
+<div class="c">РН ККТ {rnkkt} · № ФД {фд} · № ФН {фн} · ФПД {фпд} · ФФД {версия}</div>
+</body></html>
+```
 
 ### Такском (`noreply@taxcom.ru`)
 - `get_thread` возвращает `htmlBody` со всеми полями (ИНН, ФН, ФД, ФП) — raw MIME
