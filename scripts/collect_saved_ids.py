@@ -17,6 +17,15 @@ import re
 import sys
 import json
 
+# Кириллица в путях/выводе: не падать на cp1251-консолях Windows / в песочнице.
+for _s in ("stdout", "stderr"):
+    _f = getattr(sys, _s, None)
+    if _f is not None and hasattr(_f, "reconfigure"):
+        try:
+            _f.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
 # ФПД (цифры) либо иностранный ID с дефисами.
 PAT = re.compile(r"Чек_(\d{4}-\d{2}-\d{2})_([\d]+(?:-\d+)*)\.pdf$")
 

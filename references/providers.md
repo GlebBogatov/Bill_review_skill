@@ -6,10 +6,12 @@
 
 ## Готовый Gmail-запрос
 
-Подставь `after:YYYY/M/D` = сегодня − 31 день:
+Подставь `after:YYYY/M/D` = сегодня − 31 день. Вызывай `search_threads` с
+`includeTrash: true` и `pageSize: 50` (см. §2 SKILL.md — часть чеков уходит
+в TRASH автофильтрами):
 
 ```
-(from:info@ofd-magnit.ru OR from:ofdreceipt@beeline.ru OR from:subscrib@e.litres.ru OR from:noreply@check.yandex.ru OR from:echeck@1-ofd.ru OR from:noreply@taxcom.ru OR from:invoice+statements@mail.anthropic.com OR from:noreply@ofd.ru OR from:no-reply@ofd.yandex.ru) after:YYYY/M/D
+(from:info@ofd-magnit.ru OR from:ofdreceipt@beeline.ru OR from:subscrib@e.litres.ru OR from:noreply@check.yandex.ru OR from:echeck@1-ofd.ru OR from:noreply@taxcom.ru OR from:invoice+statements@mail.anthropic.com OR from:noreply@ofd.ru OR from:no-reply@ofd.yandex.ru OR from:noreply@saby.ru OR from:noreply@chek.pofd.ru) after:YYYY/M/D
 ```
 
 ## Таблица
@@ -25,6 +27,8 @@
 | `invoice+statements@mail.anthropic.com` | `Anthropic` | ID = номер чека из subject: `#([\d-]+)` | `plaintextBody` → обёртка HTML (см. ниже) → Chrome |
 | `noreply@ofd.ru` | по организации из тела (до ИНН) | ФПД + RawId из `htmlBody` | **Chrome НЕ нужен:** `Invoke-WebRequest` `https://ofd.ru/Document/RenderDoc?RawId=<GUID>&format=pdf` |
 | `no-reply@ofd.yandex.ru` | по организации из тела | vaucher-ссылка из тела | `https://ofd.yandex.ru/vaucher/<ФН>/<ФД>/<ФПД>` → Chrome напрямую |
+| `noreply@saby.ru` | по организации из тела (СБИС/Saby ОФД; напр. `СТК` — АЗС) | `ФП <digits>` в `htmlBody` | Рендер `htmlBody`/реконструкция из полей (тело малое, инлайн) |
+| `noreply@chek.pofd.ru` | по организации из тела (Платформа ОФД; напр. `AliExpress`) | `ФПД <digits>` в `htmlBody` | Рендер `htmlBody`/реконструкция (тело малое, инлайн) |
 
 ## Детали по провайдерам
 
@@ -96,6 +100,10 @@ pre{white-space:pre-wrap;word-wrap:break-word}
 - **PDF напрямую** (публичный, без авторизации, ~200 КБ, валидный `%PDF-`):
   `https://ofd.ru/Document/RenderDoc?RawId=<GUID>&format=pdf` — Chrome не нужен.
 - RawId: `RenderDoc\?RawId=([0-9a-fA-F-]{36})`. ФПД: `(?:ФПД|ФП)[:\s№]+(\d{6,10})`.
+- Быстрый способ достать RawId/ФПД/ФН/ИНН из авто-сохранённого JSON без
+  втягивания в контекст и без записи HTML:
+  `python <PYTHON> scripts/extract_html_body.py <thread_json> --fields-only`
+  (печатает JSON полей в stdout; поле `RawId` — прямо для URL скачивания).
 - ⚠ **ОДНА Gmail-нить = НЕСКОЛЬКО разных чеков** (разные ФПД/ФН/RawId) —
   обрабатывай КАЖДОЕ сообщение нити отдельно.
 
@@ -104,3 +112,20 @@ pre{white-space:pre-wrap;word-wrap:break-word}
 - vaucher-ссылка (href) из тела: `https://ofd.yandex.ru/vaucher/<ФН>/<ФД>/<ФПД>`
   → Chrome напрямую.
 - ⚠ Subject идентичен `check.yandex.ru` — папку бери по организации из тела.
+
+### Saby / СБИС ОФД (`noreply@saby.ru`)
+- Найден §4-discovery 2026-08-13. Тело малое → приходит **инлайн**. Чек чистый и
+  самодостаточный (org, ИНН, товар, ФН/ФД/ФП — всё в `htmlBody`).
+- Поля: `ФП (\d+)`, `ФН (\d{16})`, `ФД (\d+)`, ИНН, «Кассовый чек N», ТРК/товар.
+  Ссылка «Проверить в ОФД»: `https://saby.ru/ofd/check/rec/<ККТ>/<ДДММГГ>/<ФПД>`.
+- Папка по организации до ИНН (напр. АЗС `СТК`, ИНН 6317103768 → `СТК`).
+- Рендер: реконструкция из полей (надёжнее — лого/QR внешние, офлайн не грузятся).
+
+### Платформа ОФД (`noreply@chek.pofd.ru`)
+- Найден §4-discovery 2026-08-13. Тело малое → **инлайн**. Промо-баннеры сверху
+  (platformaofd), сам чек ниже — org/ИНН/место расчётов, товар, поставщик-агент,
+  ФН/ФД/ФПД, «КАССОВЫЙ ЧЕК №..».
+- Поля: `ФПД (\d+)`, `N ФН (\d{16})`, `N ФД (\d+)`, ИНН, место расчётов.
+- Часто у чека НЕТ кириллического имени org — только ИНН + «Место расчётов»
+  (напр. `ru.aliexpress.com`, ИНН 7703380158 → папка `AliExpress`).
+- Рендер: реконструкция из полей (без промо-баннеров и внешних картинок/QR).

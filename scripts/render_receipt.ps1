@@ -69,9 +69,18 @@ if (-not (Test-Path $OutPath)) {
 }
 
 $kb = [math]::Round((Get-Item $OutPath).Length / 1KB, 1)
-if ($kb -gt $MinKB) {
+# Магия %PDF: размер-проверка одна не ловит HTML-страницу ошибки (>MinKB, но не PDF).
+$magic = ''
+try {
+  $fs = [System.IO.File]::OpenRead($OutPath)
+  $buf = New-Object byte[] 5
+  $null = $fs.Read($buf, 0, 5)
+  $fs.Close()
+  $magic = -join ($buf | ForEach-Object { [char]$_ })
+} catch { }
+if ($kb -gt $MinKB -and $magic -eq '%PDF-') {
   Write-Output "OK $kb KB: $OutPath"
 } else {
   Remove-Item $OutPath -Force
-  Write-Output "FAIL too small ($kb KB) removed: $OutPath"
+  Write-Output "FAIL bad output (size $kb KB, magic '$magic') removed: $OutPath"
 }

@@ -9,18 +9,34 @@
 
 Использование:
     python extract_html_body.py <thread_json> <out.html> [--index N] [--plain]
+    python extract_html_body.py <thread_json> --fields-only [--index N]
+    python extract_html_body.py <thread_json> --fields-only --all
 
-  <thread_json>  путь к сохранённому JSON get_thread
-  <out.html>     куда записать тело
-  --index N      номер сообщения в нити (по умолчанию 0)
-  --plain        взять plaintextBody (Anthropic) и обернуть в HTML-шаблон
+  <thread_json>   путь к сохранённому JSON get_thread
+  <out.html>      куда записать тело (не нужен при --fields-only)
+  --index N       номер сообщения в нити (по умолчанию 0)
+  --plain         взять plaintextBody (Anthropic) и обернуть в HTML-шаблон
+  --fields-only   не писать HTML: напечатать в stdout JSON фискальных полей
+                  (ФПД/ФН/ФД/ИНН/RawId/дата) выбранного сообщения
+  --all           с --fields-only: обойти ВСЕ сообщения нити (важно для ofd.ru,
+                  где одна нить = несколько разных чеков)
 
-После записи печатает в stderr найденные regex-поля (ФПД/ФН/ФД/дата) для сверки.
+После записи HTML печатает в stderr найденные regex-поля для глазной сверки.
 """
+import io
 import re
 import sys
 import json
 import html as _html
+
+# Кириллица в путях/полях: не падать на cp1251-консолях Windows / в песочнице.
+for _s in ("stdout", "stderr"):
+    _f = getattr(sys, _s, None)
+    if _f is not None and hasattr(_f, "reconfigure"):
+        try:
+            _f.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
 TEMPLATE = (
     "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>"
@@ -31,34 +47,61 @@ TEMPLATE = (
 
 
 def fields(text):
+    """Извлечь фискальные поля из тела (HTML или plaintext)."""
     plain = re.sub(r"<[^>]+>", " ", text)
-    def g(pat):
-        m = re.search(pat, plain)
+
+    def g(pat, src=plain):
+        m = re.search(pat, src)
         return m.group(1) if m else None
+
     return {
         "ФПД": g(r"(?:ФПД|ФП)[:\s№]+(\d{6,10})"),
         "ФН": g(r"(?:ФН|FN|№\s*ФН)[:\s№]+(\d{16})"),
         "ФД": g(r"(?:ФД|FD|№\s*ФД)[:\s№]+(\d+)"),
+        "ИНН": g(r"ИНН[:\s№]*(\d{10,12})"),
+        # RawId ищем в СЫРОМ теле (в href, не в тексте): GUID из ссылки RenderDoc.
+        "RawId": g(r"RenderDoc\?RawId=([0-9a-fA-F-]{36})", text),
         "дата": g(r"(\d{2}\.\d{2}\.\d{4})"),
     }
 
 
 def main(argv):
     args = [a for a in argv[1:] if not a.startswith("--")]
-    if len(args) < 2:
-        sys.stderr.write(
-            "usage: extract_html_body.py <thread_json> <out.html> "
-            "[--index N] [--plain]\n")
-        return 2
-    src, out = args[0], args[1]
+    fields_only = "--fields-only" in argv
+    do_all = "--all" in argv
+    plain = "--plain" in argv
     idx = 0
     if "--index" in argv:
         idx = int(argv[argv.index("--index") + 1])
-    plain = "--plain" in argv
 
+    if not args or (not fields_only and len(args) < 2):
+        sys.stderr.write(
+            "usage: extract_html_body.py <thread_json> <out.html> "
+            "[--index N] [--plain]\n"
+            "       extract_html_body.py <thread_json> --fields-only "
+            "[--index N] [--all]\n")
+        return 2
+
+    src = args[0]
     with open(src, encoding="utf-8") as fh:
         data = json.load(fh)
-    msg = data["messages"][idx]
+    messages = data["messages"]
+
+    if fields_only:
+        targets = range(len(messages)) if do_all else [idx]
+        out = []
+        for i in targets:
+            m = messages[i]
+            body = m.get("htmlBody") or m.get("plaintextBody") or ""
+            rec = {"index": i, "id": m.get("id"), "date": m.get("date"),
+                   "subject": m.get("subject")}
+            rec.update(fields(body))
+            out.append(rec)
+        print(json.dumps(out if do_all else out[0], ensure_ascii=False, indent=2))
+        return 0
+
+    out = args[1]
+    msg = messages[idx]
     if plain:
         body = TEMPLATE.replace("{body}", _html.escape(msg["plaintextBody"]))
     else:
