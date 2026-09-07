@@ -1,26 +1,30 @@
 <#
 .SYNOPSIS
-  Подтянуть последнюю версию скилла из git и зеркалировать «публичные» файлы в
-  рабочую папку скилла, НЕ трогая приватную конфигурацию и журнал.
+  Pull the latest skill from git and mirror the PUBLIC files into the live skill
+  folder, WITHOUT touching the private configuration or the run journal.
 
 .DESCRIPTION
-  Механизм авто-доставки изменений из репозитория в «живой» скилл:
-    1. `git -C <CloneDir> pull --ff-only` — best-effort: при сетевой/auth-ошибке
-       печатает предупреждение и продолжает с тем, что уже есть в клоне.
-    2. Копирует из клона в <LiveDir> только ПУБЛИЧНЫЕ файлы (список ниже).
-       `references/configuration.md` НЕ копируется — в <LiveDir> лежат реальные
-       локальные значения; журнал и `.git` тоже не трогаются.
+  Auto-delivery of repo changes into the live skill:
+    1. `git -C <CloneDir> pull --ff-only` - best-effort: on a network/auth error
+       it warns and continues with whatever is already in the clone.
+    2. Copies only the PUBLIC files (list below) from the clone into <LiveDir>.
+       `references/configuration.md` is NOT copied (the live folder holds the real
+       local values); the journal and `.git` are left alone too.
 
-  Источник истины для публичных файлов — git-репозиторий: правь их через репозиторий,
-  локальные правки этих файлов в <LiveDir> будут перезаписаны при следующем прогоне.
+  The git repository is the source of truth for the public files: edit them via
+  the repo, not in the live copy - local edits to those files are overwritten on
+  the next run.
 
-.PARAMETER CloneDir  git-клон репозитория (working tree).
-.PARAMETER LiveDir   рабочая папка скилла — цель зеркалирования.
-.PARAMETER NoPull    пропустить git pull (только зеркалировать текущий клон).
+  ASCII-only on purpose: a .ps1 with non-ASCII bytes saved without a BOM is
+  misread by Windows PowerShell 5.1 (cp1251) and fails to parse.
+
+.PARAMETER CloneDir  git clone (working tree).
+.PARAMETER LiveDir   live skill folder - the mirror target.
+.PARAMETER NoPull    skip git pull (mirror the current clone only).
 
 .EXAMPLE
-  .\sync_skill.ps1 -CloneDir "C:\Users\<Имя>\Bill_review_skill" `
-                   -LiveDir  "C:\Users\<Имя>\.claude\scheduled-tasks\bill-review"
+  .\sync_skill.ps1 -CloneDir "C:\Users\<Name>\Bill_review_skill" `
+                   -LiveDir  "C:\Users\<Name>\.claude\scheduled-tasks\bill-review"
 #>
 [CmdletBinding()]
 param(
@@ -29,7 +33,7 @@ param(
   [switch] $NoPull
 )
 
-# git может быть не на PATH в окружении планировщика — найдём явно.
+# git may be off PATH under Task Scheduler - resolve it explicitly.
 function Resolve-Git {
   $c = Get-Command git -ErrorAction SilentlyContinue
   if ($c) { return $c.Source }
@@ -47,13 +51,13 @@ if (-not $NoPull) {
   if ($git) {
     Write-Output "== git pull ($CloneDir) =="
     try { & $git -C $CloneDir pull --ff-only 2>&1 | ForEach-Object { Write-Output $_ } }
-    catch { Write-Warning "git pull не удался: $($_.Exception.Message). Зеркалирую текущий клон." }
+    catch { Write-Warning "git pull failed: $($_.Exception.Message). Mirroring current clone." }
   } else {
-    Write-Warning "git не найден — пропускаю pull, зеркалирую текущий клон."
+    Write-Warning "git not found - skipping pull, mirroring current clone."
   }
 }
 
-# ПУБЛИЧНЫЕ (зеркалируемые) файлы. configuration.md, журнал, .git — НАМЕРЕННО не тут.
+# PUBLIC (mirrored) files. configuration.md, journal, .git are intentionally excluded.
 $files = @(
   'SKILL.md', 'README.md', 'LICENSE',
   'references/providers.md',
@@ -65,7 +69,7 @@ $changed = 0
 foreach ($rel in $files) {
   $src = Join-Path $CloneDir $rel
   $dst = Join-Path $LiveDir  $rel
-  if (-not (Test-Path $src)) { Write-Warning "нет в клоне: $rel"; continue }
+  if (-not (Test-Path $src)) { Write-Warning "missing in clone: $rel"; continue }
   $dstDir = Split-Path -Parent $dst
   if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
   $same = (Test-Path $dst) -and
