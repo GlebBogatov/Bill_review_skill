@@ -19,17 +19,20 @@
   misread by Windows PowerShell 5.1 (cp1251) and fails to parse.
 
 .PARAMETER CloneDir  git clone (working tree).
-.PARAMETER LiveDir   live skill folder - the mirror target.
+.PARAMETER LiveDir   one or more live skill folders (mirror targets). Pass several
+                     comma-separated to keep both the skills dir and the
+                     scheduled-tasks dir in sync from one run.
 .PARAMETER NoPull    skip git pull (mirror the current clone only).
 
 .EXAMPLE
   .\sync_skill.ps1 -CloneDir "C:\Users\<Name>\Bill_review_skill" `
-                   -LiveDir  "C:\Users\<Name>\.claude\scheduled-tasks\bill-review"
+                   -LiveDir  "C:\Users\<Name>\.claude\skills\bill-review",
+                             "C:\Users\<Name>\.claude\scheduled-tasks\bill-review"
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)] [string] $CloneDir,
-  [Parameter(Mandatory = $true)] [string] $LiveDir,
+  [Parameter(Mandatory = $true)] [string[]] $LiveDir,
   [switch] $NoPull
 )
 
@@ -65,19 +68,21 @@ $files = @(
   'scripts/render_receipt.ps1', 'scripts/sync_skill.ps1'
 )
 
-$changed = 0
-foreach ($rel in $files) {
-  $src = Join-Path $CloneDir $rel
-  $dst = Join-Path $LiveDir  $rel
-  if (-not (Test-Path $src)) { Write-Warning "missing in clone: $rel"; continue }
-  $dstDir = Split-Path -Parent $dst
-  if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-  $same = (Test-Path $dst) -and
-    ((Get-FileHash $src -Algorithm SHA256).Hash -eq (Get-FileHash $dst -Algorithm SHA256).Hash)
-  if (-not $same) {
-    Copy-Item $src $dst -Force
-    Write-Output "updated: $rel"
-    $changed++
+foreach ($target in $LiveDir) {
+  $changed = 0
+  foreach ($rel in $files) {
+    $src = Join-Path $CloneDir $rel
+    $dst = Join-Path $target   $rel
+    if (-not (Test-Path $src)) { Write-Warning "missing in clone: $rel"; continue }
+    $dstDir = Split-Path -Parent $dst
+    if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
+    $same = (Test-Path $dst) -and
+      ((Get-FileHash $src -Algorithm SHA256).Hash -eq (Get-FileHash $dst -Algorithm SHA256).Hash)
+    if (-not $same) {
+      Copy-Item $src $dst -Force
+      Write-Output "updated: $rel -> $target"
+      $changed++
+    }
   }
+  Write-Output "== done: $changed file(s) updated in $target =="
 }
-Write-Output "== done: $changed file(s) updated in $LiveDir =="
